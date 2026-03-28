@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pure Sole</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="disclaimer" class="disclaimer hidden">
+    <span>Pure Sole is an independent personal shopping service. We are not affiliated with, sponsored by, or representing Nike, Adidas, Foot Locker, or any other brand. All products are sourced from authorized retailers. Brand names and logos belong to their respective owners.</span>
+    <button id="dismissDisclaimer">X</button>
+  </div>
+
+  <header>
+    <div class="container row" style="justify-content:space-between;align-items:center">
+      <div class="brand">Pure Sole</div>
+      <div class="icon-list">
+        <span class="icon">💵 Cash App</span>
+        <span class="icon">💜 Venmo</span>
+        <span class="icon">🅿️ PayPal</span>
+      </div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container">
+      <h1 id="heroTitle">Pure Sole</h1>
+      <p id="heroSubtitle" class="muted"></p>
+      <div id="categories" class="section"></div>
+    </div>
+  </section>
+
+  <section class="section container">
+    <h2>How It Works</h2>
+    <div class="how-steps">
+      <div class="card">1. Browse</div>
+      <div class="card">2. Order</div>
+      <div class="card">3. We Source It</div>
+      <div class="card">4. Ships To You</div>
+    </div>
+    <p id="finalSale" class="notice"></p>
+  </section>
+
+  <section class="section container">
+    <h2>Featured Products</h2>
+    <div id="products" class="grid"></div>
+    <p id="emptyState" class="muted"></p>
+  </section>
+
+  <section class="section container">
+    <h3>Fast Direct Payment Options</h3>
+    <div class="icon-list">
+      <span class="icon">💵 Cash App</span>
+      <span class="icon">💜 Venmo</span>
+      <span class="icon">🅿️ PayPal</span>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <p><a href="mailto:aidanburke.business@gmail.com">Contact Us</a> | <a href="https://www.instagram.com/ab2banks" target="_blank">Instagram</a></p>
+    <p>© 2026 Pure Sole</p>
+  </footer>
+
+  <aside class="checkout" id="checkoutBox">
+    <h3>Checkout</h3>
+    <p id="shippingNotice" class="muted"></p>
+    <p class="muted">Order confirms once payment sent.</p>
+    <form id="checkoutForm">
+      <input class="input" name="name" required placeholder="Full name" />
+      <input class="input" name="email" required placeholder="Email" type="email" style="margin-top:.45rem"/>
+      <select class="input" name="paymentMethod" style="margin-top:.45rem">
+        <option>Cash App</option><option>Venmo</option><option>PayPal</option>
+      </select>
+      <select class="input" name="product" style="margin-top:.45rem"></select>
+      <input class="input" name="size" required placeholder="Size" style="margin-top:.45rem"/>
+      <input class="input" name="qty" type="number" min="1" value="1" style="margin-top:.45rem"/>
+      <button style="margin-top:.7rem;width:100%">Confirm Order</button>
+    </form>
+    <div id="paymentUsernames" class="notice"></div>
+    <div id="orderResult" class="notice hidden"></div>
+  </aside>
+
+  <script src="/app.js"></script>
+</body>
+</html>
