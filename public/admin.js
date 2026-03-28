@@ -164,6 +164,14 @@ function renderTaxes(){
   }).catch((err) => {
     tabsNode.innerHTML = `<h1>Taxes</h1><p>Could not load tax envelope: ${err.message}</p>`;
   });
+  tabsNode.innerHTML = `<h1>Taxes</h1>
+    <p>25% is auto-withheld from every profit to keep Pure Sole tax-safe. This section provides plain English guidance and quarterly reminders 30 days before each due date.</p>
+    <ul>${state.quarterly.map(q=>`<li>${q.quarter}: deadline ${q.deadline}, reminder ${q.reminderOn}</li>`).join('')}</ul>
+    <button id="downloadTaxPdf">Generate Tax PDF</button>
+    <h3>Stored Tax Documents</h3>
+    <ul>${state.store.taxDocuments.map(d=>`<li><a href="${d.path}" target="_blank">${d.path}</a></li>`).join('') || '<li>No docs yet</li>'}</ul>
+  `;
+  document.getElementById('downloadTaxPdf').onclick = ()=> window.open('/api/admin/taxes/pdf','_blank');
 }
 
 function renderEditor(){
@@ -285,6 +293,7 @@ function renderSettings(){
     <form id="settingsForm" class="card">
       <h3>Admin Security</h3>
       <input class="input" name="adminPassword" type="password" placeholder="Leave blank to keep current password" />
+      <input class="input" name="adminPassword" type="password" value="${s.adminPassword}" />
       <h3>Business Info</h3>
       <input class="input" name="businessEmail" value="${s.businessEmail}" />
       <input class="input" name="instagramUrl" value="${s.instagramUrl}" />

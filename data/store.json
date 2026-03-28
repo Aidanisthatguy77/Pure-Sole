@@ -2,6 +2,7 @@
   "settings": {
     "businessName": "Pure Sole",
     "adminPassword": "sha256:23bda96cadf97eef0d88eb51e81d900c92f7e8d9fadec498ab4328c57477eb43",
+    "adminPassword": "changeme123",
     "businessEmail": "aidanburke.business@gmail.com",
     "instagramUrl": "https://www.instagram.com/ab2banks",
     "payment": {
@@ -54,4 +55,6 @@
     "balance": 0,
     "transactions": []
   }
+}
+  "automationEvents": []
 }

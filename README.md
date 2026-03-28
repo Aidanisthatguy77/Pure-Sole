@@ -22,6 +22,7 @@ Reset it anytime with:
 ```bash
 npm run reset:admin-password -- "A@070610A@070610"
 ```
+Default admin password: `changeme123` (change in Settings immediately).
 
 ## Included capabilities
 
