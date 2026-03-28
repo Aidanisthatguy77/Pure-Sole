@@ -5,6 +5,7 @@ const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const PDFDocument = require('pdfkit');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,6 +16,8 @@ const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const LOCKOUT_MS = 60 * 60 * 1000;
 const MAX_FAILED_ATTEMPTS = 3;
 const AUTOMATION_POLL_MS = 60 * 1000;
+const ORDER_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const ORDER_RATE_LIMIT_MAX = 8;
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -23,6 +26,16 @@ const upload = multer({ dest: UPLOAD_DIR });
 
 const sessions = new Map();
 const loginAttempts = new Map();
+const orderRateLimits = new Map();
+
+app.set('trust proxy', 1);
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  next();
+});
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -38,6 +51,25 @@ function saveStore(store) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
 }
 
+function ensureTaxEnvelope(store) {
+  if (!store.taxEnvelope) {
+    store.taxEnvelope = { balance: 0, transactions: [] };
+  }
+  if (!Array.isArray(store.taxEnvelope.transactions)) {
+    store.taxEnvelope.transactions = [];
+  }
+}
+
+function hashPassword(rawPassword) {
+  return `sha256:${crypto.createHash('sha256').update(String(rawPassword)).digest('hex')}`;
+}
+
+function verifyPassword(inputPassword, savedPassword) {
+  if (!savedPassword) return false;
+  if (savedPassword.startsWith('sha256:')) return hashPassword(inputPassword) === savedPassword;
+  return inputPassword === savedPassword;
+}
+
 function addEvent(store, type, message, meta = {}) {
   store.automationEvents = store.automationEvents || [];
   store.automationEvents.unshift({
@@ -48,6 +80,33 @@ function addEvent(store, type, message, meta = {}) {
     createdAt: new Date().toISOString()
   });
   store.automationEvents = store.automationEvents.slice(0, 200);
+}
+
+function queueEmail(store, { to, subject, body, template = 'general', orderId = '' }) {
+  store.emailQueue = store.emailQueue || [];
+  store.emailQueue.unshift({
+    id: uuidv4(),
+    to,
+    subject,
+    body,
+    template,
+    orderId,
+    createdAt: new Date().toISOString(),
+    status: 'queued'
+  });
+  store.emailQueue = store.emailQueue.slice(0, 500);
+}
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const entry = orderRateLimits.get(ip) || { count: 0, resetAt: now + ORDER_RATE_LIMIT_WINDOW_MS };
+  if (now > entry.resetAt) {
+    entry.count = 0;
+    entry.resetAt = now + ORDER_RATE_LIMIT_WINDOW_MS;
+  }
+  entry.count += 1;
+  orderRateLimits.set(ip, entry);
+  return entry.count > ORDER_RATE_LIMIT_MAX;
 }
 
 function sanitizePublicStore(store) {
@@ -143,6 +202,15 @@ app.get('/api/public-store', (req, res) => {
 
 app.post('/api/orders', (req, res) => {
   const { customer, items, paymentMethod } = req.body;
+  if (isRateLimited(req.ip)) {
+    return res.status(429).json({ error: 'Too many order attempts. Please wait a few minutes and try again.' });
+  }
+  if (!customer?.name || !customer?.email || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Missing order details' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email)) {
+    return res.status(400).json({ error: 'Invalid email' });
+  }
   if (!customer?.name || !customer?.email || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Missing order details' });
   }
@@ -155,6 +223,8 @@ app.post('/api/orders', (req, res) => {
   const normalizedItems = items.map((item) => {
     const product = productMap.get(item.productId);
     if (!product) throw new Error('Invalid product in cart');
+    if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 10) throw new Error('Invalid quantity');
+    if (item.size && String(item.size).length > 20) throw new Error('Invalid size');
     total += product.price * item.quantity;
     cost += product.cost * item.quantity;
     return {
@@ -168,6 +238,7 @@ app.post('/api/orders', (req, res) => {
   const order = {
     id: uuidv4(),
     createdAt: new Date().toISOString(),
+    status: 'Pending Payment',
     status: 'Payment Confirmed',
     trackingNumber: '',
     customer,
@@ -187,6 +258,79 @@ app.post('/api/orders', (req, res) => {
       `Automated confirmation prepared for ${customer.email}`,
       { orderId: order.id, template: 'order-confirmation' }
     );
+    queueEmail(store, {
+      to: customer.email,
+      subject: `Order received: ${order.id}`,
+      body: `Thanks ${customer.name}, we received your order and are waiting for payment confirmation.`,
+      template: 'order-confirmation',
+      orderId: order.id
+    });
+  }
+  saveStore(store);
+
+  res.json({ message: 'Order created. Complete payment to confirm.', orderId: order.id, status: order.status });
+});
+
+app.post('/api/payments/create-checkout-session', (req, res) => {
+  const { orderId, provider } = req.body;
+  if (!orderId || !provider) return res.status(400).json({ error: 'orderId and provider are required' });
+  const store = loadStore();
+  const order = store.orders.find((o) => o.id === orderId);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  const keyExists = provider === 'stripe'
+    ? Boolean(store.settings.paymentProviders?.stripeSecretKey)
+    : Boolean(store.settings.paymentProviders?.paypalClientId);
+  const hostedBase = store.settings.hostedBaseUrl || `http://localhost:${PORT}`;
+  const paymentUrl = keyExists
+    ? `${hostedBase}/pay/${provider}?orderId=${orderId}`
+    : `${hostedBase}/checkout?orderId=${orderId}&provider=${provider}`;
+  addEvent(store, 'payment', `Checkout session created via ${provider}`, { orderId, provider });
+  saveStore(store);
+  res.json({ paymentUrl, provider, mode: keyExists ? 'live-configured' : 'sandbox-placeholder' });
+});
+
+app.post('/api/webhooks/payment', (req, res) => {
+  const { orderId, paymentStatus, transactionId, provider } = req.body;
+  const store = loadStore();
+  const webhookSecret = req.headers['x-webhook-secret'];
+  const expectedSecret = provider === 'paypal' ? store.settings.paymentProviders?.paypalWebhookId : store.settings.paymentProviders?.stripeWebhookSecret;
+  if (expectedSecret && webhookSecret !== expectedSecret) {
+    return res.status(401).json({ error: 'Invalid webhook signature' });
+  }
+  const idx = store.orders.findIndex((o) => o.id === orderId);
+  if (idx === -1) return res.status(404).json({ error: 'Order not found' });
+  if (paymentStatus === 'paid') {
+    const wasAlreadyPaid = store.orders[idx].status === 'Payment Confirmed';
+    store.orders[idx].status = 'Payment Confirmed';
+    store.orders[idx].transactionId = transactionId || '';
+    store.orders[idx].paidAt = new Date().toISOString();
+    addEvent(store, 'payment', `Payment confirmed by webhook (${provider || 'unknown'})`, { orderId, transactionId });
+    if (store.settings?.automation?.autoCustomerEmails) {
+      queueEmail(store, {
+        to: store.orders[idx].customer.email,
+        subject: `Payment confirmed: ${orderId}`,
+        body: `Your payment was confirmed and your Pure Sole order is now being sourced.`,
+        template: 'payment-confirmed',
+        orderId
+      });
+    }
+    if (!wasAlreadyPaid) {
+      ensureTaxEnvelope(store);
+      const taxReserve = Number((store.orders[idx].profit * 0.25).toFixed(2));
+      store.taxEnvelope.balance = Number((store.taxEnvelope.balance + taxReserve).toFixed(2));
+      store.taxEnvelope.transactions.unshift({
+        id: uuidv4(),
+        createdAt: new Date().toISOString(),
+        type: 'auto-reserve',
+        amount: taxReserve,
+        note: `Auto reserved 25% from order ${orderId}`,
+        orderId
+      });
+      addEvent(store, 'tax-envelope', `Auto-reserved ${taxReserve} for IRS envelope`, { orderId, taxReserve });
+    }
+  }
+  saveStore(store);
+  res.json({ ok: true, order: store.orders[idx] });
   }
   saveStore(store);
 
@@ -203,6 +347,7 @@ app.post('/api/admin/login', (req, res) => {
   const { password } = req.body;
   const store = loadStore();
 
+  if (!verifyPassword(password, store.settings.adminPassword)) {
   if (password !== store.settings.adminPassword) {
     attempts.failed += 1;
     if (attempts.failed >= MAX_FAILED_ATTEMPTS) {
@@ -216,6 +361,7 @@ app.post('/api/admin/login', (req, res) => {
   loginAttempts.delete(ip);
   const sid = uuidv4();
   sessions.set(sid, { createdAt: Date.now(), lastActive: Date.now() });
+  res.cookie('pureSoleAdminSession', sid, { httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production' });
   res.cookie('pureSoleAdminSession', sid, { httpOnly: true, sameSite: 'strict' });
   res.json({ ok: true });
 });
@@ -248,6 +394,85 @@ app.get('/api/admin/bootstrap', authRequired, (req, res) => {
     quarterly: quarterInfo(),
     marketData: mockMarketIntelligence(store.products)
   });
+});
+
+app.get('/api/admin/crm', authRequired, (req, res) => {
+  const store = loadStore();
+  const crm = Object.values(store.orders.reduce((acc, order) => {
+    const email = order.customer.email.toLowerCase();
+    const current = acc[email] || {
+      customerName: order.customer.name,
+      email,
+      orders: 0,
+      totalSpend: 0,
+      totalProfit: 0,
+      lastOrderAt: ''
+    };
+    current.orders += 1;
+    current.totalSpend += order.total;
+    current.totalProfit += order.profit;
+    current.lastOrderAt = !current.lastOrderAt || new Date(order.createdAt) > new Date(current.lastOrderAt) ? order.createdAt : current.lastOrderAt;
+    acc[email] = current;
+    return acc;
+  }, {}));
+  crm.sort((a, b) => b.totalSpend - a.totalSpend);
+  res.json({
+    repeatCustomers: crm.filter((c) => c.orders > 1),
+    topSpenders: crm.slice(0, 20),
+    totalCustomers: crm.length
+  });
+});
+
+app.get('/api/admin/tax-envelope', authRequired, (req, res) => {
+  const store = loadStore();
+  ensureTaxEnvelope(store);
+  const metrics = getOrderMetrics(store.orders);
+  const delta = Number((store.taxEnvelope.balance - metrics.taxWithheld).toFixed(2));
+  res.json({
+    balance: store.taxEnvelope.balance,
+    recommendedReserve: Number(metrics.taxWithheld.toFixed(2)),
+    differenceVsRecommended: delta,
+    transactions: store.taxEnvelope.transactions.slice(0, 100)
+  });
+});
+
+app.post('/api/admin/tax-envelope/deposit', authRequired, (req, res) => {
+  const store = loadStore();
+  ensureTaxEnvelope(store);
+  const amount = Number(req.body.amount || 0);
+  const note = (req.body.note || 'Manual tax envelope deposit').toString();
+  if (!(amount > 0)) return res.status(400).json({ error: 'Deposit amount must be greater than 0' });
+  store.taxEnvelope.balance = Number((store.taxEnvelope.balance + amount).toFixed(2));
+  store.taxEnvelope.transactions.unshift({
+    id: uuidv4(),
+    createdAt: new Date().toISOString(),
+    type: 'manual-deposit',
+    amount,
+    note
+  });
+  addEvent(store, 'tax-envelope', `Manual tax envelope deposit: ${amount}`, { amount, note });
+  saveStore(store);
+  res.json({ ok: true, balance: store.taxEnvelope.balance });
+});
+
+app.post('/api/admin/tax-envelope/withdraw', authRequired, (req, res) => {
+  const store = loadStore();
+  ensureTaxEnvelope(store);
+  const amount = Number(req.body.amount || 0);
+  const note = (req.body.note || 'IRS payment or adjustment').toString();
+  if (!(amount > 0)) return res.status(400).json({ error: 'Withdrawal amount must be greater than 0' });
+  if (amount > store.taxEnvelope.balance) return res.status(400).json({ error: 'Cannot withdraw more than tax envelope balance' });
+  store.taxEnvelope.balance = Number((store.taxEnvelope.balance - amount).toFixed(2));
+  store.taxEnvelope.transactions.unshift({
+    id: uuidv4(),
+    createdAt: new Date().toISOString(),
+    type: 'withdrawal',
+    amount,
+    note
+  });
+  addEvent(store, 'tax-envelope', `Tax envelope withdrawal: ${amount}`, { amount, note });
+  saveStore(store);
+  res.json({ ok: true, balance: store.taxEnvelope.balance });
 });
 
 app.post('/api/admin/products', authRequired, upload.single('image'), (req, res) => {
@@ -309,6 +534,18 @@ app.put('/api/admin/orders/:id', authRequired, (req, res) => {
 
 app.put('/api/admin/settings', authRequired, (req, res) => {
   const store = loadStore();
+  const incomingPassword = req.body.adminPassword;
+  const normalizedPassword = incomingPassword
+    ? (String(incomingPassword).startsWith('sha256:') ? incomingPassword : hashPassword(incomingPassword))
+    : store.settings.adminPassword;
+  store.settings = {
+    ...store.settings,
+    ...req.body,
+    adminPassword: normalizedPassword,
+    payment: { ...store.settings.payment, ...(req.body.payment || {}) },
+    apiKeys: { ...store.settings.apiKeys, ...(req.body.apiKeys || {}) },
+    paymentProviders: { ...store.settings.paymentProviders, ...(req.body.paymentProviders || {}) },
+    smtp: { ...store.settings.smtp, ...(req.body.smtp || {}) },
   store.settings = {
     ...store.settings,
     ...req.body,
@@ -318,6 +555,10 @@ app.put('/api/admin/settings', authRequired, (req, res) => {
   };
   saveStore(store);
   res.json(store.settings);
+});
+
+app.get('/healthz', (req, res) => {
+  res.json({ ok: true, service: 'Pure Sole', timestamp: new Date().toISOString() });
 });
 
 app.post('/api/admin/content/draft', authRequired, (req, res) => {
@@ -494,6 +735,15 @@ function runAutomations() {
         spendableProfit: metrics.spendableProfit
       });
     }
+  }
+
+  if (automation.autoCustomerEmails) {
+    const queued = (store.emailQueue || []).filter((mail) => mail.status === 'queued').slice(0, 10);
+    queued.forEach((mail) => {
+      mail.status = 'sent';
+      mail.sentAt = new Date().toISOString();
+      addEvent(store, 'email', `Auto email sent to ${mail.to}`, { orderId: mail.orderId, template: mail.template });
+    });
   }
 
   saveStore(store);
