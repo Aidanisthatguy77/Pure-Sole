@@ -47,17 +47,6 @@ Default admin password: `changeme123` (change in Settings immediately).
 - Market intelligence dashboard scaffold
 - The Blueprint and Financial Freedom expandable command-center cards
 - Settings for password, payment handles, business info, and API keys
-- CRM view for repeat customers and top spenders
-- Payment provider + SMTP + hosted URL configuration in settings
-
-## All-in-one payment operations included
-
-- Payment checkout session endpoint scaffold (`/api/payments/create-checkout-session`) for Stripe/PayPal style flows
-- Payment webhook endpoint (`/api/webhooks/payment`) to auto-mark orders paid
-- Automated email queue and receipt/status email events
-- Fraud guardrails: order rate limiting and email validation
-- CRM endpoint (`/api/admin/crm`) for repeat customers and top spenders
-- Hosted base URL setting for production-style checkout links
 
 ## Storage
 

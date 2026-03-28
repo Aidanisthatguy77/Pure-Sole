@@ -15,8 +15,6 @@ const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const LOCKOUT_MS = 60 * 60 * 1000;
 const MAX_FAILED_ATTEMPTS = 3;
 const AUTOMATION_POLL_MS = 60 * 1000;
-const ORDER_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
-const ORDER_RATE_LIMIT_MAX = 8;
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -25,7 +23,6 @@ const upload = multer({ dest: UPLOAD_DIR });
 
 const sessions = new Map();
 const loginAttempts = new Map();
-const orderRateLimits = new Map();
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -51,33 +48,6 @@ function addEvent(store, type, message, meta = {}) {
     createdAt: new Date().toISOString()
   });
   store.automationEvents = store.automationEvents.slice(0, 200);
-}
-
-function queueEmail(store, { to, subject, body, template = 'general', orderId = '' }) {
-  store.emailQueue = store.emailQueue || [];
-  store.emailQueue.unshift({
-    id: uuidv4(),
-    to,
-    subject,
-    body,
-    template,
-    orderId,
-    createdAt: new Date().toISOString(),
-    status: 'queued'
-  });
-  store.emailQueue = store.emailQueue.slice(0, 500);
-}
-
-function isRateLimited(ip) {
-  const now = Date.now();
-  const entry = orderRateLimits.get(ip) || { count: 0, resetAt: now + ORDER_RATE_LIMIT_WINDOW_MS };
-  if (now > entry.resetAt) {
-    entry.count = 0;
-    entry.resetAt = now + ORDER_RATE_LIMIT_WINDOW_MS;
-  }
-  entry.count += 1;
-  orderRateLimits.set(ip, entry);
-  return entry.count > ORDER_RATE_LIMIT_MAX;
 }
 
 function sanitizePublicStore(store) {
@@ -173,14 +143,8 @@ app.get('/api/public-store', (req, res) => {
 
 app.post('/api/orders', (req, res) => {
   const { customer, items, paymentMethod } = req.body;
-  if (isRateLimited(req.ip)) {
-    return res.status(429).json({ error: 'Too many order attempts. Please wait a few minutes and try again.' });
-  }
   if (!customer?.name || !customer?.email || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Missing order details' });
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email)) {
-    return res.status(400).json({ error: 'Invalid email' });
   }
 
   const store = loadStore();
@@ -204,7 +168,7 @@ app.post('/api/orders', (req, res) => {
   const order = {
     id: uuidv4(),
     createdAt: new Date().toISOString(),
-    status: 'Pending Payment',
+    status: 'Payment Confirmed',
     trackingNumber: '',
     customer,
     items: normalizedItems,
@@ -223,59 +187,10 @@ app.post('/api/orders', (req, res) => {
       `Automated confirmation prepared for ${customer.email}`,
       { orderId: order.id, template: 'order-confirmation' }
     );
-    queueEmail(store, {
-      to: customer.email,
-      subject: `Order received: ${order.id}`,
-      body: `Thanks ${customer.name}, we received your order and are waiting for payment confirmation.`,
-      template: 'order-confirmation',
-      orderId: order.id
-    });
   }
   saveStore(store);
 
-  res.json({ message: 'Order created. Complete payment to confirm.', orderId: order.id, status: order.status });
-});
-
-app.post('/api/payments/create-checkout-session', (req, res) => {
-  const { orderId, provider } = req.body;
-  if (!orderId || !provider) return res.status(400).json({ error: 'orderId and provider are required' });
-  const store = loadStore();
-  const order = store.orders.find((o) => o.id === orderId);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
-  const keyExists = provider === 'stripe'
-    ? Boolean(store.settings.paymentProviders?.stripeSecretKey)
-    : Boolean(store.settings.paymentProviders?.paypalClientId);
-  const hostedBase = store.settings.hostedBaseUrl || `http://localhost:${PORT}`;
-  const paymentUrl = keyExists
-    ? `${hostedBase}/pay/${provider}?orderId=${orderId}`
-    : `${hostedBase}/checkout?orderId=${orderId}&provider=${provider}`;
-  addEvent(store, 'payment', `Checkout session created via ${provider}`, { orderId, provider });
-  saveStore(store);
-  res.json({ paymentUrl, provider, mode: keyExists ? 'live-configured' : 'sandbox-placeholder' });
-});
-
-app.post('/api/webhooks/payment', (req, res) => {
-  const { orderId, paymentStatus, transactionId, provider } = req.body;
-  const store = loadStore();
-  const idx = store.orders.findIndex((o) => o.id === orderId);
-  if (idx === -1) return res.status(404).json({ error: 'Order not found' });
-  if (paymentStatus === 'paid') {
-    store.orders[idx].status = 'Payment Confirmed';
-    store.orders[idx].transactionId = transactionId || '';
-    store.orders[idx].paidAt = new Date().toISOString();
-    addEvent(store, 'payment', `Payment confirmed by webhook (${provider || 'unknown'})`, { orderId, transactionId });
-    if (store.settings?.automation?.autoCustomerEmails) {
-      queueEmail(store, {
-        to: store.orders[idx].customer.email,
-        subject: `Payment confirmed: ${orderId}`,
-        body: `Your payment was confirmed and your Pure Sole order is now being sourced.`,
-        template: 'payment-confirmed',
-        orderId
-      });
-    }
-  }
-  saveStore(store);
-  res.json({ ok: true, order: store.orders[idx] });
+  res.json({ message: 'Order confirmed once payment is sent.', orderId: order.id });
 });
 
 app.post('/api/admin/login', (req, res) => {
@@ -332,33 +247,6 @@ app.get('/api/admin/bootstrap', authRequired, (req, res) => {
     bestSelling,
     quarterly: quarterInfo(),
     marketData: mockMarketIntelligence(store.products)
-  });
-});
-
-app.get('/api/admin/crm', authRequired, (req, res) => {
-  const store = loadStore();
-  const crm = Object.values(store.orders.reduce((acc, order) => {
-    const email = order.customer.email.toLowerCase();
-    const current = acc[email] || {
-      customerName: order.customer.name,
-      email,
-      orders: 0,
-      totalSpend: 0,
-      totalProfit: 0,
-      lastOrderAt: ''
-    };
-    current.orders += 1;
-    current.totalSpend += order.total;
-    current.totalProfit += order.profit;
-    current.lastOrderAt = !current.lastOrderAt || new Date(order.createdAt) > new Date(current.lastOrderAt) ? order.createdAt : current.lastOrderAt;
-    acc[email] = current;
-    return acc;
-  }, {}));
-  crm.sort((a, b) => b.totalSpend - a.totalSpend);
-  res.json({
-    repeatCustomers: crm.filter((c) => c.orders > 1),
-    topSpenders: crm.slice(0, 20),
-    totalCustomers: crm.length
   });
 });
 
@@ -426,8 +314,6 @@ app.put('/api/admin/settings', authRequired, (req, res) => {
     ...req.body,
     payment: { ...store.settings.payment, ...(req.body.payment || {}) },
     apiKeys: { ...store.settings.apiKeys, ...(req.body.apiKeys || {}) },
-    paymentProviders: { ...store.settings.paymentProviders, ...(req.body.paymentProviders || {}) },
-    smtp: { ...store.settings.smtp, ...(req.body.smtp || {}) },
     automation: { ...store.settings.automation, ...(req.body.automation || {}) }
   };
   saveStore(store);
@@ -608,15 +494,6 @@ function runAutomations() {
         spendableProfit: metrics.spendableProfit
       });
     }
-  }
-
-  if (automation.autoCustomerEmails) {
-    const queued = (store.emailQueue || []).filter((mail) => mail.status === 'queued').slice(0, 10);
-    queued.forEach((mail) => {
-      mail.status = 'sent';
-      mail.sentAt = new Date().toISOString();
-      addEvent(store, 'email', `Auto email sent to ${mail.to}`, { orderId: mail.orderId, template: mail.template });
-    });
   }
 
   saveStore(store);

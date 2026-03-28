@@ -14,22 +14,6 @@
       "sneakerDatabase": "",
       "arbit": ""
     },
-    "paymentProviders": {
-      "stripePublishableKey": "",
-      "stripeSecretKey": "",
-      "stripeWebhookSecret": "",
-      "paypalClientId": "",
-      "paypalSecret": "",
-      "paypalWebhookId": ""
-    },
-    "smtp": {
-      "host": "",
-      "port": "587",
-      "username": "",
-      "password": "",
-      "fromEmail": "aidanburke.business@gmail.com"
-    },
-    "hostedBaseUrl": "",
     "automation": {
       "enabled": true,
       "autoCustomerEmails": true,
@@ -48,6 +32,5 @@
   "orders": [],
   "taxDocuments": [],
   "contentDraft": null,
-  "automationEvents": [],
-  "emailQueue": []
+  "automationEvents": []
 }

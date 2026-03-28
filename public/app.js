@@ -62,17 +62,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async (e)=>{
   const result = await fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.json());
   const box = document.getElementById('orderResult');
   box.classList.remove('hidden');
-  if (result.orderId) {
-    const provider = (fd.get('paymentMethod') || '').toLowerCase().includes('paypal') ? 'paypal' : 'stripe';
-    const checkout = await fetch('/api/payments/create-checkout-session', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ orderId: result.orderId, provider })
-    }).then(r=>r.json());
-    box.innerHTML = `${result.message} Order #${result.orderId}<br><a href="${checkout.paymentUrl}" target="_blank">Complete Payment (${provider})</a>`;
-  } else {
-    box.textContent = result.error || 'Error';
-  }
+  box.textContent = result.message ? `${result.message} Order #${result.orderId}` : (result.error || 'Error');
   e.target.reset();
 });
 

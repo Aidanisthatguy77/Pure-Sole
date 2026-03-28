@@ -80,19 +80,6 @@ function renderOrders(){
   tabsNode.innerHTML = `<h1>Orders</h1><p>Live order feed with customer details, status tracking, tracking numbers, and profit per order.</p><table class="table"><tr><th>ID</th><th>Customer</th><th>Items</th><th>Status</th><th>Tracking</th><th>Profit</th><th>Action</th></tr>${rows}</table>`;
 }
 
-async function renderCRM(){
-  const crm = await api('/api/admin/crm');
-  tabsNode.innerHTML = `<h1>CRM</h1>
-    <p>Simple customer relationship view for repeat buyers and top spenders.</p>
-    <div class="card"><strong>Total customers:</strong> ${crm.totalCustomers}</div>
-    <h3>Top Spenders</h3>
-    <table class="table"><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Total Spend</th><th>Total Profit</th><th>Last Order</th></tr>
-      ${(crm.topSpenders || []).map(c=>`<tr><td>${c.customerName}</td><td>${c.email}</td><td>${c.orders}</td><td>${m(c.totalSpend)}</td><td>${m(c.totalProfit)}</td><td>${new Date(c.lastOrderAt).toLocaleString()}</td></tr>`).join('') || '<tr><td colspan=\"6\">No customer data yet</td></tr>'}
-    </table>
-    <h3>Repeat Customers</h3>
-    <ul>${(crm.repeatCustomers || []).map(c=>`<li>${c.customerName} (${c.email}) — ${c.orders} orders, ${m(c.totalSpend)} spent</li>`).join('') || '<li>No repeat customers yet</li>'}</ul>`;
-}
-
 function renderRevenue(){
   const orders = state.store.orders;
   const by = (fn) => Object.entries(orders.reduce((acc,o)=>{const k=fn(new Date(o.createdAt));acc[k]=(acc[k]||0)+o.profit;return acc;},{})).map(([k,v])=>`<li>${k}: ${m(v)}</li>`).join('');
@@ -248,21 +235,6 @@ function renderSettings(){
       <input class="input" name="kicksdb" value="${s.apiKeys.kicksdb}" />
       <input class="input" name="sneakerDatabase" value="${s.apiKeys.sneakerDatabase}" />
       <input class="input" name="arbit" value="${s.apiKeys.arbit}" />
-      <h3>Payment Provider Keys</h3>
-      <input class="input" name="stripePublishableKey" placeholder="Stripe publishable key" value="${s.paymentProviders?.stripePublishableKey || ''}" />
-      <input class="input" name="stripeSecretKey" placeholder="Stripe secret key" value="${s.paymentProviders?.stripeSecretKey || ''}" />
-      <input class="input" name="stripeWebhookSecret" placeholder="Stripe webhook secret" value="${s.paymentProviders?.stripeWebhookSecret || ''}" />
-      <input class="input" name="paypalClientId" placeholder="PayPal client ID" value="${s.paymentProviders?.paypalClientId || ''}" />
-      <input class="input" name="paypalSecret" placeholder="PayPal secret" value="${s.paymentProviders?.paypalSecret || ''}" />
-      <input class="input" name="paypalWebhookId" placeholder="PayPal webhook ID" value="${s.paymentProviders?.paypalWebhookId || ''}" />
-      <h3>Email / SMTP</h3>
-      <input class="input" name="smtpHost" placeholder="SMTP host" value="${s.smtp?.host || ''}" />
-      <input class="input" name="smtpPort" placeholder="SMTP port" value="${s.smtp?.port || ''}" />
-      <input class="input" name="smtpUsername" placeholder="SMTP username" value="${s.smtp?.username || ''}" />
-      <input class="input" name="smtpPassword" placeholder="SMTP password" value="${s.smtp?.password || ''}" />
-      <input class="input" name="smtpFromEmail" placeholder="From email" value="${s.smtp?.fromEmail || ''}" />
-      <h3>Hosted Deployment</h3>
-      <input class="input" name="hostedBaseUrl" placeholder="https://yourdomain.com" value="${s.hostedBaseUrl || ''}" />
       <h3>Automation</h3>
       <label><input type="checkbox" name="automationEnabled" ${s.automation?.enabled ? 'checked' : ''}/> Master enabled</label><br>
       <label><input type="checkbox" name="automationEmails" ${s.automation?.autoCustomerEmails ? 'checked' : ''}/> Customer email events</label><br>
@@ -277,7 +249,6 @@ function renderTab(){
   if(activeTab==='dashboard') return renderDashboard();
   if(activeTab==='products') return renderProducts();
   if(activeTab==='orders') return renderOrders();
-  if(activeTab==='crm') return renderCRM();
   if(activeTab==='revenue') return renderRevenue();
   if(activeTab==='taxes') return renderTaxes();
   if(activeTab==='editor') return renderEditor();
@@ -337,22 +308,6 @@ async function saveSettings(e){
     instagramUrl: fd.get('instagramUrl'),
     payment: { cashApp: fd.get('cashApp'), venmo: fd.get('venmo'), paypal: fd.get('paypal') },
     apiKeys: { kicksdb: fd.get('kicksdb'), sneakerDatabase: fd.get('sneakerDatabase'), arbit: fd.get('arbit') },
-    paymentProviders: {
-      stripePublishableKey: fd.get('stripePublishableKey'),
-      stripeSecretKey: fd.get('stripeSecretKey'),
-      stripeWebhookSecret: fd.get('stripeWebhookSecret'),
-      paypalClientId: fd.get('paypalClientId'),
-      paypalSecret: fd.get('paypalSecret'),
-      paypalWebhookId: fd.get('paypalWebhookId')
-    },
-    smtp: {
-      host: fd.get('smtpHost'),
-      port: fd.get('smtpPort'),
-      username: fd.get('smtpUsername'),
-      password: fd.get('smtpPassword'),
-      fromEmail: fd.get('smtpFromEmail')
-    },
-    hostedBaseUrl: fd.get('hostedBaseUrl'),
     automation: {
       enabled: !!fd.get('automationEnabled'),
       autoCustomerEmails: !!fd.get('automationEmails'),
