@@ -1,0 +1,57 @@
+{
+  "settings": {
+    "businessName": "Pure Sole",
+    "adminPassword": "sha256:23bda96cadf97eef0d88eb51e81d900c92f7e8d9fadec498ab4328c57477eb43",
+    "businessEmail": "aidanburke.business@gmail.com",
+    "instagramUrl": "https://www.instagram.com/ab2banks",
+    "payment": {
+      "cashApp": "$yourcashapp",
+      "venmo": "@yourvenmo",
+      "paypal": "yourpaypal@email.com"
+    },
+    "apiKeys": {
+      "kicksdb": "",
+      "sneakerDatabase": "",
+      "arbit": ""
+    },
+    "paymentProviders": {
+      "stripePublishableKey": "",
+      "stripeSecretKey": "",
+      "stripeWebhookSecret": "",
+      "paypalClientId": "",
+      "paypalSecret": "",
+      "paypalWebhookId": ""
+    },
+    "smtp": {
+      "host": "",
+      "port": "587",
+      "username": "",
+      "password": "",
+      "fromEmail": "aidanburke.business@gmail.com"
+    },
+    "hostedBaseUrl": "",
+    "automation": {
+      "enabled": true,
+      "autoCustomerEmails": true,
+      "quarterlyReminders": true,
+      "dailySummary": true
+    },
+    "editableContent": {
+      "heroTitle": "Pure Sole",
+      "heroSubtitle": "Personal shopping service for premium streetwear and sneakers",
+      "shippingNotice": "Please allow 2-9 business days for processing and delivery. You will receive a tracking number via email once your order ships.",
+      "finalSale": "All sales are final. Please ensure the item is the correct size before ordering.",
+      "emptyState": "New drops coming soon. Check back shortly or contact us to request a specific item."
+    }
+  },
+  "products": [],
+  "orders": [],
+  "taxDocuments": [],
+  "contentDraft": null,
+  "automationEvents": [],
+  "emailQueue": [],
+  "taxEnvelope": {
+    "balance": 0,
+    "transactions": []
+  }
+}
