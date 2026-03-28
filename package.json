@@ -5,6 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "dev": "node server.js",
+    "reset:admin-password": "node scripts/reset-admin-password.js"
     "dev": "node server.js"
   },
   "dependencies": {
