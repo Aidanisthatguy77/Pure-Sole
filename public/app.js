@@ -73,6 +73,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async (e)=>{
   } else {
     box.textContent = result.error || 'Error';
   }
+  box.textContent = result.message ? `${result.message} Order #${result.orderId}` : (result.error || 'Error');
   e.target.reset();
 });
 

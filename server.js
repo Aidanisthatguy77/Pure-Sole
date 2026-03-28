@@ -211,6 +211,9 @@ app.post('/api/orders', (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email)) {
     return res.status(400).json({ error: 'Invalid email' });
   }
+  if (!customer?.name || !customer?.email || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Missing order details' });
+  }
 
   const store = loadStore();
   const productMap = new Map(store.products.map((p) => [p.id, p]));
@@ -236,6 +239,7 @@ app.post('/api/orders', (req, res) => {
     id: uuidv4(),
     createdAt: new Date().toISOString(),
     status: 'Pending Payment',
+    status: 'Payment Confirmed',
     trackingNumber: '',
     customer,
     items: normalizedItems,
@@ -327,6 +331,10 @@ app.post('/api/webhooks/payment', (req, res) => {
   }
   saveStore(store);
   res.json({ ok: true, order: store.orders[idx] });
+  }
+  saveStore(store);
+
+  res.json({ message: 'Order confirmed once payment is sent.', orderId: order.id });
 });
 
 app.post('/api/admin/login', (req, res) => {
@@ -340,6 +348,7 @@ app.post('/api/admin/login', (req, res) => {
   const store = loadStore();
 
   if (!verifyPassword(password, store.settings.adminPassword)) {
+  if (password !== store.settings.adminPassword) {
     attempts.failed += 1;
     if (attempts.failed >= MAX_FAILED_ATTEMPTS) {
       attempts.lockedUntil = Date.now() + LOCKOUT_MS;
@@ -353,6 +362,7 @@ app.post('/api/admin/login', (req, res) => {
   const sid = uuidv4();
   sessions.set(sid, { createdAt: Date.now(), lastActive: Date.now() });
   res.cookie('pureSoleAdminSession', sid, { httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production' });
+  res.cookie('pureSoleAdminSession', sid, { httpOnly: true, sameSite: 'strict' });
   res.json({ ok: true });
 });
 
@@ -536,6 +546,11 @@ app.put('/api/admin/settings', authRequired, (req, res) => {
     apiKeys: { ...store.settings.apiKeys, ...(req.body.apiKeys || {}) },
     paymentProviders: { ...store.settings.paymentProviders, ...(req.body.paymentProviders || {}) },
     smtp: { ...store.settings.smtp, ...(req.body.smtp || {}) },
+  store.settings = {
+    ...store.settings,
+    ...req.body,
+    payment: { ...store.settings.payment, ...(req.body.payment || {}) },
+    apiKeys: { ...store.settings.apiKeys, ...(req.body.apiKeys || {}) },
     automation: { ...store.settings.automation, ...(req.body.automation || {}) }
   };
   saveStore(store);

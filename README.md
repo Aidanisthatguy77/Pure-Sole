@@ -15,7 +15,7 @@ Open:
 - Public storefront: `http://localhost:3000`
 - Admin panel: `http://localhost:3000/admin`
 
-Default admin password: `A@070610A@070610` (stored as a SHA-256 hash; change in Settings immediately).
+Default admin password: `changeme123` (change in Settings immediately).
 
 ## Included capabilities
 
