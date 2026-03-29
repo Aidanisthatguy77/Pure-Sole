@@ -46,6 +46,13 @@
       "fromEmail": "aidanburke.business@gmail.com"
     },
     "hostedBaseUrl": "",
+    "compliance": {
+      "businessState": "OH",
+      "salesTaxRegistered": false,
+      "resaleCertificateOnFile": false,
+      "privacyPolicyUrl": "",
+      "termsUrl": ""
+    },
     "automation": {
       "enabled": true,
       "autoCustomerEmails": true,

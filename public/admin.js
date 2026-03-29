@@ -171,6 +171,27 @@ function renderTaxes(){
   });
 }
 
+function renderCompliance(){
+  api('/api/admin/compliance/report').then((report) => {
+    tabsNode.innerHTML = `<h1>Compliance Center</h1>
+      <p>This panel helps you run Pure Sole in a more compliant way: tax setup visibility, term acceptance checks, shipping-delay risk alerts, and one-click delay/cancel actions.</p>
+      <div class="grid">
+        ${card('Business State', `<div class="kpi">${report.businessState || 'Not set'}</div>`)}
+        ${card('Sales Tax Registered', `<div class="kpi">${report.salesTaxRegistered ? 'Yes' : 'No'}</div>`)}
+        ${card('Resale Certificate On File', `<div class="kpi">${report.resaleCertificateOnFile ? 'Yes' : 'No'}</div>`)}
+        ${card('At-Risk Orders', `<div class="kpi">${report.summary.atRiskCount}</div>`)}
+      </div>
+      <h3>At-Risk Orders (past promised ship date without delay notice)</h3>
+      <table class="table"><tr><th>Order</th><th>Customer</th><th>Status</th><th>Promised Ship By</th><th>Action</th></tr>
+        ${(report.atRiskOrders || []).map(o=>`<tr><td>${o.id.slice(0,8)}</td><td>${o.customer.name}<br>${o.customer.email}</td><td>${o.status}</td><td>${o.promisedShipBy ? new Date(o.promisedShipBy).toLocaleString() : '-'}</td><td><button onclick="sendDelayNotice('${o.id}')">Send Delay Notice</button> <button onclick="cancelOrderCompliance('${o.id}')">Cancel</button></td></tr>`).join('') || '<tr><td colspan=\"5\">No at-risk orders right now</td></tr>'}
+      </table>
+      <h3>Orders Missing Terms Acceptance</h3>
+      <p>${report.termsMissing.length ? report.termsMissing.join(', ') : 'None'}</p>`;
+  }).catch((err) => {
+    tabsNode.innerHTML = `<h1>Compliance Center</h1><p>Could not load compliance report: ${err.message}</p>`;
+  });
+}
+
 function renderGiving(){
   api('/api/admin/giving-envelope').then((giving) => {
     const methodOptions = (giving.methods || []).map(m => `<option>${m}</option>`).join('') || '<option>Cash App</option>';
@@ -411,6 +432,7 @@ function renderTab(){
   if(activeTab==='crm') return renderCRM();
   if(activeTab==='revenue') return renderRevenue();
   if(activeTab==='taxes') return renderTaxes();
+  if(activeTab==='compliance') return renderCompliance();
   if(activeTab==='giving') return renderGiving();
   if(activeTab==='editor') return renderEditor();
   if(activeTab==='mentor') return renderChat('business','AI Business Mentor');
@@ -446,6 +468,18 @@ window.setOrderStatus = async (id)=>{
   const trackingNumber = prompt('Tracking number (optional)','');
   await api(`/api/admin/orders/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,trackingNumber})});
   await refresh();activeTab='orders';renderTab();
+};
+window.sendDelayNotice = async (id)=>{
+  const note = prompt('Delay notice message to send customer', 'We are experiencing a sourcing delay. You can cancel for a full refund if you prefer.');
+  if (!note) return;
+  await api(`/api/admin/orders/${id}/delay-notice`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({note})});
+  await refresh(); activeTab='compliance'; renderTab();
+};
+window.cancelOrderCompliance = async (id)=>{
+  const ok = confirm('Cancel this order and log compliance cancellation?');
+  if (!ok) return;
+  await api(`/api/admin/orders/${id}/cancel`, {method:'POST'});
+  await refresh(); activeTab='compliance'; renderTab();
 };
 
 async function saveDraft(e){

@@ -56,7 +56,8 @@ document.getElementById('checkoutForm').addEventListener('submit', async (e)=>{
   const payload = {
     customer: { name: fd.get('name'), email: fd.get('email'), size: fd.get('size') },
     paymentMethod: fd.get('paymentMethod'),
-    items: [{ productId: fd.get('product'), quantity: Number(fd.get('qty')) || 1, size: fd.get('size') }]
+    items: [{ productId: fd.get('product'), quantity: Number(fd.get('qty')) || 1, size: fd.get('size') }],
+    agreedTerms: fd.get('agreedTerms') === 'on'
   };
 
   const result = await fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.json());

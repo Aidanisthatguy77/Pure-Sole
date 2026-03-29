@@ -120,6 +120,17 @@ function isRateLimited(ip) {
   return entry.count > ORDER_RATE_LIMIT_MAX;
 }
 
+function addBusinessDays(startDate, businessDays) {
+  const date = new Date(startDate);
+  let added = 0;
+  while (added < businessDays) {
+    date.setDate(date.getDate() + 1);
+    const day = date.getDay();
+    if (day !== 0 && day !== 6) added += 1;
+  }
+  return date;
+}
+
 function sanitizePublicStore(store) {
   return {
     settings: {
@@ -218,12 +229,15 @@ app.get('/api/payment-methods', (req, res) => {
 });
 
 app.post('/api/orders', (req, res) => {
-  const { customer, items, paymentMethod } = req.body;
+  const { customer, items, paymentMethod, agreedTerms } = req.body;
   if (isRateLimited(req.ip)) {
     return res.status(429).json({ error: 'Too many order attempts. Please wait a few minutes and try again.' });
   }
   if (!customer?.name || !customer?.email || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Missing order details' });
+  }
+  if (!agreedTerms) {
+    return res.status(400).json({ error: 'You must agree to final-sale and independent service terms.' });
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email)) {
     return res.status(400).json({ error: 'Invalid email' });
@@ -259,7 +273,15 @@ app.post('/api/orders', (req, res) => {
     paymentMethod,
     total,
     cost,
-    profit
+    profit,
+    compliance: {
+      agreedTerms: true,
+      termsAcceptedAt: new Date().toISOString(),
+      sourceIp: req.ip,
+      promisedShipBy: addBusinessDays(new Date(), 9).toISOString(),
+      delayNoticeSentAt: '',
+      offeredCancellation: false
+    }
   };
 
   store.orders.unshift(order);
@@ -428,6 +450,76 @@ app.get('/api/admin/crm', authRequired, (req, res) => {
     topSpenders: crm.slice(0, 20),
     totalCustomers: crm.length
   });
+});
+
+app.get('/api/admin/compliance/report', authRequired, (req, res) => {
+  const store = loadStore();
+  const now = new Date();
+  const atRiskOrders = store.orders.filter((order) => {
+    if (order.status === 'Cancelled' || order.status === 'Delivered') return false;
+    const promised = order.compliance?.promisedShipBy ? new Date(order.compliance.promisedShipBy) : addBusinessDays(new Date(order.createdAt), 9);
+    return promised < now && !order.compliance?.delayNoticeSentAt;
+  }).map((order) => ({
+    id: order.id,
+    customer: order.customer,
+    status: order.status,
+    promisedShipBy: order.compliance?.promisedShipBy || '',
+    trackingNumber: order.trackingNumber || ''
+  }));
+
+  const termsMissing = store.orders.filter((order) => !order.compliance?.agreedTerms).map((order) => order.id);
+  res.json({
+    businessState: store.settings.compliance?.businessState || '',
+    salesTaxRegistered: !!store.settings.compliance?.salesTaxRegistered,
+    resaleCertificateOnFile: !!store.settings.compliance?.resaleCertificateOnFile,
+    atRiskOrders,
+    termsMissing,
+    summary: {
+      totalOrders: store.orders.length,
+      atRiskCount: atRiskOrders.length,
+      termsMissingCount: termsMissing.length
+    }
+  });
+});
+
+app.post('/api/admin/orders/:id/delay-notice', authRequired, (req, res) => {
+  const store = loadStore();
+  const idx = store.orders.findIndex((o) => o.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Order not found' });
+  const note = String(req.body.note || 'Shipment delay notice sent with cancellation option.');
+  store.orders[idx].compliance = store.orders[idx].compliance || {};
+  store.orders[idx].compliance.delayNoticeSentAt = new Date().toISOString();
+  store.orders[idx].compliance.offeredCancellation = true;
+  addEvent(store, 'compliance', `Delay notice sent for order ${store.orders[idx].id}`, { orderId: store.orders[idx].id, note });
+  queueEmail(store, {
+    to: store.orders[idx].customer.email,
+    subject: `Update for your Pure Sole order ${store.orders[idx].id}`,
+    body: `${note} You can request cancellation for a full refund if preferred.`,
+    template: 'delay-notice',
+    orderId: store.orders[idx].id
+  });
+  saveStore(store);
+  res.json({ ok: true, order: store.orders[idx] });
+});
+
+app.post('/api/admin/orders/:id/cancel', authRequired, (req, res) => {
+  const store = loadStore();
+  const idx = store.orders.findIndex((o) => o.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Order not found' });
+  store.orders[idx].status = 'Cancelled';
+  store.orders[idx].cancelledAt = new Date().toISOString();
+  store.orders[idx].compliance = store.orders[idx].compliance || {};
+  store.orders[idx].compliance.offeredCancellation = true;
+  queueEmail(store, {
+    to: store.orders[idx].customer.email,
+    subject: `Order cancelled ${store.orders[idx].id}`,
+    body: 'Your order has been cancelled. Any payment made should be refunded per your policy.',
+    template: 'order-cancelled',
+    orderId: store.orders[idx].id
+  });
+  addEvent(store, 'compliance', `Order cancelled for compliance flow ${store.orders[idx].id}`, { orderId: store.orders[idx].id });
+  saveStore(store);
+  res.json({ ok: true, order: store.orders[idx] });
 });
 
 app.get('/api/admin/tax-envelope', authRequired, (req, res) => {

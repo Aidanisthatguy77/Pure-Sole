@@ -48,6 +48,7 @@ npm run reset:admin-password -- "A@070610A@070610"
 - Taxes section with quarterly reminders + PDF generation + document storage
 - IRS Tax Envelope ledger (balance, reserve target, deposits/withdrawals, transaction history)
 - Pay IRS button to IRS Direct Pay + printable payment summary option
+- Compliance Center (term acceptance checks, at-risk shipping delay alerts, delay notice + cancel workflows)
 - Tithe & Offering envelope with separate balances, suggested tithe, and transfer logs
 - Website content draft/publish editor
 - AI Business Mentor + AI Tax Advisor chat interfaces with links
@@ -66,6 +67,7 @@ npm run reset:admin-password -- "A@070610A@070610"
 - Automated email queue and receipt/status email events
 - Fraud guardrails: order rate limiting and email validation
 - CRM endpoint (`/api/admin/crm`) for repeat customers and top spenders
+- Compliance endpoint: `GET /api/admin/compliance/report`
 - Hosted base URL setting for production-style checkout links
 - Tax envelope endpoints:
   - `GET /api/admin/tax-envelope`
