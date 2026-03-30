@@ -69,6 +69,9 @@ npm run reset:admin-password -- "A@070610A@070610"
 - CRM endpoint (`/api/admin/crm`) for repeat customers and top spenders
 - Compliance endpoint: `GET /api/admin/compliance/report`
 - Hosted base URL setting for production-style checkout links
+- Advanced automation controls:
+  - auto tithe reserve allocation on paid orders
+  - auto delay notice workflow for overdue unshipped orders
 - Tax envelope endpoints:
   - `GET /api/admin/tax-envelope`
   - `POST /api/admin/tax-envelope/deposit`

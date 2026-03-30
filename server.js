@@ -362,6 +362,24 @@ app.post('/api/webhooks/payment', (req, res) => {
         orderId
       });
       addEvent(store, 'tax-envelope', `Auto-reserved ${taxReserve} for IRS envelope`, { orderId, taxReserve });
+
+      const autoTitheEnabled = !!store.settings.advancedAutomation?.autoTitheEnabled;
+      const tithePercent = Number(store.settings.advancedAutomation?.tithePercent || 10);
+      if (autoTitheEnabled && tithePercent > 0) {
+        ensureGivingEnvelope(store);
+        const titheAmount = Number((store.orders[idx].profit * (tithePercent / 100)).toFixed(2));
+        store.givingEnvelope.titheBalance = Number((store.givingEnvelope.titheBalance + titheAmount).toFixed(2));
+        store.givingEnvelope.transactions.unshift({
+          id: uuidv4(),
+          createdAt: new Date().toISOString(),
+          type: 'auto-tithe',
+          bucket: 'tithe',
+          amount: titheAmount,
+          method: 'Auto Allocation',
+          note: `Auto tithe (${tithePercent}%) from order ${orderId}`
+        });
+        addEvent(store, 'giving-envelope', `Auto tithe reserved: ${titheAmount}`, { orderId, tithePercent, titheAmount });
+      }
     }
   }
   saveStore(store);
@@ -761,7 +779,8 @@ app.put('/api/admin/settings', authRequired, (req, res) => {
     apiKeys: { ...store.settings.apiKeys, ...(req.body.apiKeys || {}) },
     paymentProviders: { ...store.settings.paymentProviders, ...(req.body.paymentProviders || {}) },
     smtp: { ...store.settings.smtp, ...(req.body.smtp || {}) },
-    automation: { ...store.settings.automation, ...(req.body.automation || {}) }
+    automation: { ...store.settings.automation, ...(req.body.automation || {}) },
+    advancedAutomation: { ...store.settings.advancedAutomation, ...(req.body.advancedAutomation || {}) }
   };
   saveStore(store);
   res.json(store.settings);
@@ -945,6 +964,30 @@ function runAutomations() {
         spendableProfit: metrics.spendableProfit
       });
     }
+  }
+
+  const advanced = store.settings.advancedAutomation || {};
+  if (advanced.autoDelayNoticeEnabled) {
+    const days = Number(advanced.delayNoticeAfterBusinessDays || 9);
+    store.orders.forEach((order) => {
+      if (order.status === 'Cancelled' || order.status === 'Delivered') return;
+      const promised = order.compliance?.promisedShipBy
+        ? new Date(order.compliance.promisedShipBy)
+        : addBusinessDays(new Date(order.createdAt), days);
+      if (promised < now && !order.compliance?.delayNoticeSentAt) {
+        order.compliance = order.compliance || {};
+        order.compliance.delayNoticeSentAt = new Date().toISOString();
+        order.compliance.offeredCancellation = true;
+        addEvent(store, 'compliance', `Auto delay notice logged for ${order.id}`, { orderId: order.id });
+        queueEmail(store, {
+          to: order.customer.email,
+          subject: `Delay notice for order ${order.id}`,
+          body: 'Your order is delayed. You can request cancellation for a full refund.',
+          template: 'delay-notice-auto',
+          orderId: order.id
+        });
+      }
+    });
   }
 
   if (automation.autoCustomerEmails) {

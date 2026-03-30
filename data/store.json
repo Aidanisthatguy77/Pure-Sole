@@ -59,6 +59,12 @@
       "quarterlyReminders": true,
       "dailySummary": true
     },
+    "advancedAutomation": {
+      "autoTitheEnabled": true,
+      "tithePercent": 10,
+      "autoDelayNoticeEnabled": true,
+      "delayNoticeAfterBusinessDays": 9
+    },
     "editableContent": {
       "heroTitle": "Pure Sole",
       "heroSubtitle": "Personal shopping service for premium streetwear and sneakers",

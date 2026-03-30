@@ -420,6 +420,12 @@ function renderSettings(){
       <label><input type="checkbox" name="automationEmails" ${s.automation?.autoCustomerEmails ? 'checked' : ''}/> Customer email events</label><br>
       <label><input type="checkbox" name="automationQuarterly" ${s.automation?.quarterlyReminders ? 'checked' : ''}/> Quarterly reminders</label><br>
       <label><input type="checkbox" name="automationDaily" ${s.automation?.dailySummary ? 'checked' : ''}/> Daily summaries</label><br><br>
+      <h3>Advanced Automation</h3>
+      <label><input type="checkbox" name="autoTitheEnabled" ${s.advancedAutomation?.autoTitheEnabled ? 'checked' : ''}/> Auto tithe reserve from each paid order</label><br>
+      <input class="input" name="tithePercent" type="number" step="0.1" min="0" max="100" value="${s.advancedAutomation?.tithePercent ?? 10}" />
+      <label><input type="checkbox" name="autoDelayNoticeEnabled" ${s.advancedAutomation?.autoDelayNoticeEnabled ? 'checked' : ''}/> Auto-send delay notices for overdue unshipped orders</label><br>
+      <input class="input" name="delayNoticeAfterBusinessDays" type="number" min="1" max="30" value="${s.advancedAutomation?.delayNoticeAfterBusinessDays ?? 9}" />
+      <br>
       <button>Save Settings</button>
     </form>`;
   document.getElementById('settingsForm').onsubmit = saveSettings;
@@ -529,6 +535,12 @@ async function saveSettings(e){
       autoCustomerEmails: !!fd.get('automationEmails'),
       quarterlyReminders: !!fd.get('automationQuarterly'),
       dailySummary: !!fd.get('automationDaily')
+    },
+    advancedAutomation: {
+      autoTitheEnabled: !!fd.get('autoTitheEnabled'),
+      tithePercent: Number(fd.get('tithePercent') || 10),
+      autoDelayNoticeEnabled: !!fd.get('autoDelayNoticeEnabled'),
+      delayNoticeAfterBusinessDays: Number(fd.get('delayNoticeAfterBusinessDays') || 9)
     }
   })});
   await refresh();
